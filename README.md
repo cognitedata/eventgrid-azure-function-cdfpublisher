@@ -1,4 +1,4 @@
-# eventgrid-azure-function-cdfpublisher
+# CDF Publisher
 This function is a sample on how to push datapoints to CDF using an Azure Function which is triggered by a message on IOT HUB.
 
 The specific implementation can be used to extend the HOWTO [Ingesting OPC UA data with Azure Digital Twins](https://docs.microsoft.com/en-us/azure/digital-twins/how-to-ingest-opcua-data?tabs=cli) 

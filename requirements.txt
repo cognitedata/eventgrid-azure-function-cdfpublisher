@@ -5,3 +5,4 @@
 azure-functions
 azure-eventgrid
 cognite-sdk-core
+numpy

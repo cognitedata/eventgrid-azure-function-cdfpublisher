@@ -19,7 +19,7 @@ DATASET_ID = None
 LABEL_MAPPING = { 0: "Cork", 1: "Missing cork" }
 
 def create_cognite_client():
-
+    global DATASET_ID
     # Contact Project Administrator to get these
     TENANT_ID = os.getenv("TENANT_ID")
     CLIENT_ID = os.getenv("CLIENT_ID")
@@ -50,26 +50,6 @@ def create_cognite_client():
             DATASET_ID = dataset.id
 
     return client
-
-def add_dp(msg, datapoints):
-    #{'NodeId': 'http://www.prosysopc.com/OPCUA/SimulationNodes/#i=1006', 'ApplicationUri': 'urn:demo-opcua.mqizqljncwouhpx5ypmrxna13b.fx.internal.cloudapp.net:OPCUA:SimulationServer', 'Value': {'Value': -1.333333, 'SourceTimestamp': '2022-03-15T22:10:20Z'}}
-    xid = msg['NodeId']
-    #2022-03-23T11:54:07.1Z
-    #2022-03-23T11:54:07.1Z
-    if len(msg['Value']['SourceTimestamp']) > 21:
-        dt = int(datetime.strptime(msg['Value']['SourceTimestamp'], "%Y-%m-%dT%H:%M:%S.%fZ").timestamp() * 1000)
-    else:
-        dt = int(datetime.strptime(msg['Value']['SourceTimestamp'], "%Y-%m-%dT%H:%M:%SZ").timestamp() * 1000)
-    if xid in datapoints:
-        datapoints[xid].append((dt, msg['Value']['Value']))
-    else:
-        datapoints[xid] = [(dt, msg['Value']['Value'])]
-
-def get_dp(datapoints):
-    dp = []
-    for xid in datapoints:
-        dp.append({"externalId": xid, "datapoints": datapoints[xid]})
-    return dp
 
 def main(event: func.EventGridEvent):
     global ts_cache
@@ -105,8 +85,8 @@ def main(event: func.EventGridEvent):
             cognite_client.events.create(ev)
 
     if 'image' in msg:
-        logging.info("Image received")
-        logging.info(msg)
+        logging.info(f"Image received {msg['name']}")
+        #logging.info(msg)
 
         image_bytes = msg['image'].encode('utf-8')
         image = base64.b64decode(image_bytes)
@@ -115,37 +95,43 @@ def main(event: func.EventGridEvent):
         for xid in msg['asset_external_ids']:
             asset_ids.append(cognite_client.assets.retrieve(external_id=xid).id)
 
-
-        cdf_file = cognite_client.files.upload_bytes(image, name=msg['name'], asset_ids=asset_ids, external_id=msg['name'], mime_type="image/jpeg")
-        rel = Relationship(external_id=f"event_{msg['name']}", target_external_id=msg['name'], target_type="File", source_external_id=msg['event'], source_type="Event", confidence=1)
-        cognite_client.relationships.create(rel)
+        cdf_file = cognite_client.files.retrieve(external_id=msg['name'])
+        if not cdf_file:
+            cdf_file = cognite_client.files.upload_bytes(image, name=msg['name'], asset_ids=asset_ids, external_id=msg['name'], mime_type="image/jpeg", data_set_id=DATASET_ID)
+            rel = Relationship(external_id=f"event_{msg['name']}", target_external_id=msg['name'], target_type="File", source_external_id=msg['event'], source_type="Event", confidence=1)
+            cognite_client.relationships.create(rel)
+        else:
+            logging.warning(f"File {msg['name']} already exists")
+            
 
 
         #annotations
         if "coordinates" in msg:
-            annotation = {
-                "items": [
-                    {
-                        "annotatedResourceId": cdf_file.id,
-                        "annotatedResourceType": "file",
-                        "annotationType": "images.ObjectDetection",
-                        "createdTime": int(time.time()*1000),
-                        "creatingApp": "Fusion: Vision",
-                        "creatingAppVersion": "0.0.1",
-                        "data": {
-                            "boundingBox": {
-                                "xMax": float(msg['coordinates']['xMax']),
-                                "xMin": float(msg['coordinates']['xMin']),
-                                "yMax": float(msg['coordinates']['yMax']),
-                                "yMin": float(msg['coordinates']['yMin']),
+            for box in msg['coordinates']:
+                logging.info(box)
+                annotation = {
+                    "items": [
+                        {
+                            "annotatedResourceId": cdf_file.id,
+                            "annotatedResourceType": "file",
+                            "annotationType": "images.ObjectDetection",
+                            "createdTime": int(time.time()*1000),
+                            "creatingApp": "Fusion: Vision",
+                            "creatingAppVersion": "0.0.1",
+                            "data": {
+                                "boundingBox": {
+                                    "xMax": float(box['xMax']),
+                                    "xMin": float(box['xMin']),
+                                    "yMax": float(box['yMax']),
+                                    "yMin": float(box['yMin']),
+                                },
+                                "confidence": float(box['confidence']),
+                                "label": LABEL_MAPPING[int(box['label_id'])],
                             },
-                            "confidence": float(msg['coordinates']['confidence']),
-                            "label": LABEL_MAPPING[msg['coordinates']['label_id']],
-                        },
-                    }
-                ]
-            }
-            cognite_client.post("/api/playground/projects/{COGNITE_PROJECT}/annotations", annotation)
+                        }
+                    ]
+                }
+                cognite_client.post(f"/api/v1/projects/{COGNITE_PROJECT}/annotations/suggest", annotation)
 
 
 

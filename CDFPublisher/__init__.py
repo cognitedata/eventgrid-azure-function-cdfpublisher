@@ -134,12 +134,12 @@ def main(event: func.EventGridEvent):
                         "creatingAppVersion": "0.0.1",
                         "data": {
                             "boundingBox": {
-                                "xMax": msg['coordinates']['xMax'],
-                                "xMin": msg['coordinates']['xMin'],
-                                "yMax": msg['coordinates']['yMax'],
-                                "yMin": msg['coordinates']['yMin'],
+                                "xMax": float(msg['coordinates']['xMax']),
+                                "xMin": float(msg['coordinates']['xMin']),
+                                "yMax": float(msg['coordinates']['yMax']),
+                                "yMin": float(msg['coordinates']['yMin']),
                             },
-                            "confidence": msg['coordinates']['Probability'],
+                            "confidence": float(msg['coordinates']['confidence']),
                             "label": LABEL_MAPPING[msg['coordinates']['label_id']],
                         },
                     }
@@ -152,7 +152,7 @@ def main(event: func.EventGridEvent):
 
     ## datapoints
     if 'datapoints' in msg:
-        logging.info("Insert datapoints")
+        logging.debug("Insert datapoints")
         datapoints = pickle.loads(base64.b64decode(msg['datapoints'].encode('utf-8')))
         cognite_client.datapoints.insert_multiple(datapoints)
 

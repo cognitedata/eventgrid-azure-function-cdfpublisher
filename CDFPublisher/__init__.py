@@ -3,18 +3,21 @@ import json
 import logging
 import os
 import pickle
-
+import time
 from datetime import datetime
 
 import azure.functions as func
 from cognite.client import CogniteClient
-from cognite.client.data_classes import TimeSeries, ExtractionPipelineRun, Event, Relationship
+from cognite.client.data_classes import (Event, ExtractionPipelineRun,
+                                         Relationship, TimeSeries)
 
 ts_cache = set()
 cognite_client = None
 EXTRACTOR_PIPELINE_XID = os.getenv("EXTRACTOR_PIPELINE_EXTERNAL_ID", "function_app")
 DATASET_EXTERNAL_ID = os.getenv("DATASET_EXTERNAL_ID", None)
 DATASET_ID = None
+LABEL_MAPPING = { 0: "Cork", 1: "Missing cork" }
+
 def create_cognite_client():
 
     # Contact Project Administrator to get these
@@ -79,21 +82,22 @@ def main(event: func.EventGridEvent):
     message_bytes = base64.b64decode(base64_bytes)
     msg = json.loads(message_bytes.decode('ascii'))
 
-    logging.info("MESSAGE")
-    logging.info(msg)
-
     datapoints = {}
-    #{'start_time': '2022-08-29 10:47:47', 'type': 'Anomaly', 'subtype': 'Cork', 'description': 'Missing cork', 'asset_ids': [7396902715379060], 'id': 4468161180921186, 'last_updated_time': '2022-08-29 10:47:47', 'created_time': '2022-08-29 10:47:47'}
-    
+
     ## event
     if 'type' in msg and msg['type'] == 'Anomaly':
-
+        logging.info(msg)
         cur_ev = cognite_client.events.retrieve(external_id=msg['external_id'])
 
-        ev = Event(external_id=msg['external_id'], start_time=int(datetime.strptime(f"{msg['start_time']}Z", "%Y-%m-%d %H:%M:%S%z").timestamp() * 1000), type=msg['type'], subtype=msg['subtype'], description=msg['description'], asset_ids=msg['asset_ids'])
+        logging.info(msg)
+        asset_ids = []
+        for xid in msg['asset_external_ids']:
+            asset_ids.append(cognite_client.assets.retrieve(external_id=xid).id)
+
+        ev = Event(external_id=msg['external_id'], start_time=int(msg['start_time']), type=msg['type'], subtype=msg['subtype'], description=msg['description'], asset_ids=asset_ids)
         
         if 'end_time' in msg:
-            ev.end_time = int(datetime.strptime(f"{msg['end_time']}Z", "%Y-%m-%d %H:%M:%S%z").timestamp() * 1000)
+            ev.end_time = int(msg['end_time'])
 
         if cur_ev:
             cognite_client.events.update(ev)
@@ -102,12 +106,48 @@ def main(event: func.EventGridEvent):
 
     if 'image' in msg:
         logging.info("Image received")
+        logging.info(msg)
+
         image_bytes = msg['image'].encode('utf-8')
         image = base64.b64decode(image_bytes)
 
-        cognite_client.files.upload_bytes(image, name=msg['name'], asset_ids=msg['asset_ids'], external_id=msg['name'], mime_type="image/jpeg")
+        asset_ids = []
+        for xid in msg['asset_external_ids']:
+            asset_ids.append(cognite_client.assets.retrieve(external_id=xid).id)
+
+
+        cdf_file = cognite_client.files.upload_bytes(image, name=msg['name'], asset_ids=asset_ids, external_id=msg['name'], mime_type="image/jpeg")
         rel = Relationship(external_id=f"event_{msg['name']}", target_external_id=msg['name'], target_type="File", source_external_id=msg['event'], source_type="Event", confidence=1)
         cognite_client.relationships.create(rel)
+
+
+        #annotations
+        if "coordinates" in msg:
+            annotation = {
+                "items": [
+                    {
+                        "annotatedResourceId": cdf_file.id,
+                        "annotatedResourceType": "file",
+                        "annotationType": "images.ObjectDetection",
+                        "createdTime": int(time.time()*1000),
+                        "creatingApp": "Fusion: Vision",
+                        "creatingAppVersion": "0.0.1",
+                        "data": {
+                            "boundingBox": {
+                                "xMax": msg['coordinates']['xMax'],
+                                "xMin": msg['coordinates']['xMin'],
+                                "yMax": msg['coordinates']['yMax'],
+                                "yMin": msg['coordinates']['yMin'],
+                            },
+                            "confidence": msg['coordinates']['Probability'],
+                            "label": LABEL_MAPPING[msg['coordinates']['label_id']],
+                        },
+                    }
+                ]
+            }
+            cognite_client.post("/api/playground/projects/{COGNITE_PROJECT}/annotations", annotation)
+
+
 
 
     ## datapoints

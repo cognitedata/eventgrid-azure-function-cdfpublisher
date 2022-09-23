@@ -18,18 +18,18 @@ DATASET_EXTERNAL_ID = os.getenv("DATASET_EXTERNAL_ID", None)
 DATASET_ID = None
 LABEL_MAPPING = { 0: "Cork", 1: "Missing cork" }
 
+# Contact Project Administrator to get these
+TENANT_ID = os.getenv("TENANT_ID")
+CLIENT_ID = os.getenv("CLIENT_ID")
+BASE_URL = os.getenv("BASE_URL")
+COGNITE_PROJECT = os.getenv("COGNITE_PROJECT")
+SCOPES = [f"{BASE_URL}/.default"]
+CLIENT_SECRET = os.getenv("CLIENT_SECRET")  # store secret in env variable
+
+TOKEN_URL = f"https://login.microsoftonline.com/{TENANT_ID}/oauth2/v2.0/token"
+
 def create_cognite_client():
     global DATASET_ID
-    # Contact Project Administrator to get these
-    TENANT_ID = os.getenv("TENANT_ID")
-    CLIENT_ID = os.getenv("CLIENT_ID")
-    BASE_URL = os.getenv("BASE_URL")
-    COGNITE_PROJECT = os.getenv("COGNITE_PROJECT")
-    SCOPES = [f"{BASE_URL}/.default"]
-    CLIENT_SECRET = os.getenv("CLIENT_SECRET")  # store secret in env variable
-
-    TOKEN_URL = f"https://login.microsoftonline.com/{TENANT_ID}/oauth2/v2.0/token"
-
     logging.debug(f"token_url={TOKEN_URL}, token_client_id={CLIENT_ID}, token_client_secret=(hidden), token_scopes={SCOPES}, project={COGNITE_PROJECT}, base_url={BASE_URL}")
 
     client = CogniteClient(
@@ -115,9 +115,9 @@ def main(event: func.EventGridEvent):
                             "annotatedResourceId": cdf_file.id,
                             "annotatedResourceType": "file",
                             "annotationType": "images.ObjectDetection",
-                            "createdTime": int(time.time()*1000),
                             "creatingApp": "Fusion: Vision",
                             "creatingAppVersion": "0.0.1",
+                            "creatingUser": None,
                             "data": {
                                 "boundingBox": {
                                     "xMax": float(box['xMax']),

@@ -4,5 +4,6 @@
 
 azure-functions
 azure-eventgrid
-cognite-sdk-core
+cognite-sdk=4.11.0
 numpy
+protobuf==4.21.9
